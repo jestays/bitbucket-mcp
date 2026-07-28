@@ -1,0 +1,235 @@
+/**
+ * MCP server definition.
+ *
+ * Exposes tools for code review of Bitbucket Cloud pull requests: list PRs,
+ * read metadata / diffs / file contents / comments, and post review comments
+ * (general, inline, or replies).
+ *
+ * Transport: stdio (all MCP protocol traffic over stdin/stdout).
+ * Logging: console.error only — stdout is reserved for the MCP protocol.
+ */
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import {
+  bbRequest,
+  bbRequestText,
+  resolveWorkspace,
+  toQuery,
+} from "./client.js";
+
+/** Wrap a tool body with uniform JSON serialization and error handling. */
+async function toolResult(fn: () => Promise<unknown>) {
+  try {
+    const data = await fn();
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify(data ?? null, null, 2) },
+      ],
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[bitbucket-mcp] Tool error:", message);
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `Error: ${message}` }],
+    };
+  }
+}
+
+/** Like toolResult, but for tools whose payload is already plain text. */
+async function textResult(fn: () => Promise<string>) {
+  try {
+    const text = await fn();
+    return { content: [{ type: "text" as const, text }] };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[bitbucket-mcp] Tool error:", message);
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `Error: ${message}` }],
+    };
+  }
+}
+
+/** Input fields shared by every tool that targets a repository. */
+const repoShape = {
+  repo: z
+    .string()
+    .describe('Repository slug, e.g. "my-service" (not the full URL).'),
+  workspace: z
+    .string()
+    .optional()
+    .describe(
+      "Workspace id. Optional when the BITBUCKET_WORKSPACE env var is set.",
+    ),
+};
+
+const pageShape = {
+  page: z.number().int().min(1).optional().describe("Page number (1-based)."),
+  pagelen: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Results per page (max 50, default 10)."),
+};
+
+/** Minimal shapes of the Bitbucket API responses we consume. */
+interface BbUser {
+  display_name?: string;
+}
+interface BbBranchEnd {
+  branch?: { name?: string };
+  commit?: { hash?: string };
+}
+interface BbPullRequest {
+  id: number;
+  title?: string;
+  description?: string;
+  state?: string;
+  author?: BbUser;
+  source?: BbBranchEnd;
+  destination?: BbBranchEnd;
+  reviewers?: BbUser[];
+  participants?: { user?: BbUser; role?: string; approved?: boolean }[];
+  comment_count?: number;
+  created_on?: string;
+  updated_on?: string;
+  links?: { html?: { href?: string } };
+}
+interface BbPaginated<T> {
+  values?: T[];
+  page?: number;
+  size?: number;
+  next?: string;
+}
+
+function summarizePr(pr: BbPullRequest) {
+  return {
+    id: pr.id,
+    title: pr.title,
+    state: pr.state,
+    author: pr.author?.display_name,
+    source_branch: pr.source?.branch?.name,
+    destination_branch: pr.destination?.branch?.name,
+    comment_count: pr.comment_count,
+    updated_on: pr.updated_on,
+    url: pr.links?.html?.href,
+  };
+}
+
+export function createServer(): McpServer {
+  const server = new McpServer({
+    name: "bitbucket-mcp",
+    version: "1.0.0",
+  });
+
+  // --- List pull requests ---------------------------------------------------
+  server.registerTool(
+    "list_pull_requests",
+    {
+      description:
+        "List pull requests of a repository, filtered by state (default OPEN). " +
+        "Returns a summary per PR: id, title, author, branches, state, " +
+        "comment count and last update. Paginated; `next_page` is set when " +
+        "more results exist.",
+      inputSchema: {
+        ...repoShape,
+        state: z
+          .enum(["OPEN", "MERGED", "DECLINED", "SUPERSEDED"])
+          .optional()
+          .describe("PR state to filter by (default OPEN)."),
+        ...pageShape,
+      },
+    },
+    async ({ repo, workspace, state, page, pagelen }) =>
+      toolResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        const query = toQuery({ state: state ?? "OPEN", page, pagelen });
+        const data = await bbRequest<BbPaginated<BbPullRequest>>(
+          "GET",
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests${query}`,
+        );
+        return {
+          pull_requests: (data.values ?? []).map(summarizePr),
+          page: data.page,
+          next_page: data.next ? (data.page ?? 1) + 1 : undefined,
+        };
+      }),
+  );
+
+  // --- Get a single pull request --------------------------------------------
+  server.registerTool(
+    "get_pull_request",
+    {
+      description:
+        "Get full metadata of a pull request: title, description, author, " +
+        "branches with commit hashes, state, and reviewers with their " +
+        "approval status.",
+      inputSchema: {
+        ...repoShape,
+        pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+      },
+    },
+    async ({ repo, workspace, pr_id }) =>
+      toolResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        const pr = await bbRequest<BbPullRequest>(
+          "GET",
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}`,
+        );
+        return {
+          ...summarizePr(pr),
+          description: pr.description,
+          source_commit: pr.source?.commit?.hash,
+          destination_commit: pr.destination?.commit?.hash,
+          created_on: pr.created_on,
+          participants: (pr.participants ?? []).map((p) => ({
+            name: p.user?.display_name,
+            role: p.role,
+            approved: p.approved,
+          })),
+        };
+      }),
+  );
+
+  // --- Get the diff of a pull request ----------------------------------------
+  server.registerTool(
+    "get_pull_request_diff",
+    {
+      description:
+        "Get the unified diff of a pull request as plain text. This is the " +
+        "primary input for a code review.",
+      inputSchema: {
+        ...repoShape,
+        pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+      },
+    },
+    async ({ repo, workspace, pr_id }) =>
+      textResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        return bbRequestText(
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/diff`,
+        );
+      }),
+  );
+
+  return server;
+}
+
+export async function startServer(): Promise<void> {
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // Some MCP clients disconnect by closing stdin instead of sending a signal.
+  server.server.onclose = () => {
+    console.error("[bitbucket-mcp] Transport closed, shutting down...");
+    process.exit(0);
+  };
+
+  console.error("[bitbucket-mcp] MCP server started on stdio.");
+}
