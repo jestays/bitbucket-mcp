@@ -106,6 +106,17 @@ interface BbPaginated<T> {
   size?: number;
   next?: string;
 }
+interface BbComment {
+  id: number;
+  user?: BbUser;
+  content?: { raw?: string };
+  inline?: { path?: string; from?: number | null; to?: number | null };
+  parent?: { id?: number };
+  deleted?: boolean;
+  resolution?: unknown;
+  created_on?: string;
+  links?: { html?: { href?: string } };
+}
 
 function summarizePr(pr: BbPullRequest) {
   return {
@@ -214,6 +225,172 @@ export function createServer(): McpServer {
         return bbRequestText(
           `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/diff`,
         );
+      }),
+  );
+
+  // --- Get file content -------------------------------------------------------
+  server.registerTool(
+    "get_file_content",
+    {
+      description:
+        "Get the raw content of a file at a given ref (branch name, tag or " +
+        "commit hash). Useful to see full context beyond the diff hunks " +
+        "during a review.",
+      inputSchema: {
+        ...repoShape,
+        path: z
+          .string()
+          .describe('File path inside the repo, e.g. "src/app/main.ts".'),
+        ref: z
+          .string()
+          .describe(
+            "Branch name, tag or commit hash (e.g. the PR source branch " +
+              "or source_commit from get_pull_request).",
+          ),
+      },
+    },
+    async ({ repo, workspace, path, ref }) =>
+      textResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+        return bbRequestText(
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/src/${encodeURIComponent(ref)}/${encodedPath}`,
+        );
+      }),
+  );
+
+  // --- List PR comments -------------------------------------------------------
+  server.registerTool(
+    "list_pull_request_comments",
+    {
+      description:
+        "List the comments of a pull request (general and inline). Use it " +
+        "before posting review comments to avoid repeating observations " +
+        "already made. Paginated; `next_page` is set when more results exist.",
+      inputSchema: {
+        ...repoShape,
+        pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+        ...pageShape,
+      },
+    },
+    async ({ repo, workspace, pr_id, page, pagelen }) =>
+      toolResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        const query = toQuery({ page, pagelen });
+        const data = await bbRequest<BbPaginated<BbComment>>(
+          "GET",
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/comments${query}`,
+        );
+        return {
+          comments: (data.values ?? []).map((c) => ({
+            id: c.id,
+            author: c.user?.display_name,
+            content: c.content?.raw,
+            inline: c.inline
+              ? { path: c.inline.path, from: c.inline.from, to: c.inline.to }
+              : undefined,
+            reply_to: c.parent?.id,
+            deleted: c.deleted || undefined,
+            resolved: c.resolution ? true : undefined,
+            created_on: c.created_on,
+          })),
+          page: data.page,
+          next_page: data.next ? (data.page ?? 1) + 1 : undefined,
+        };
+      }),
+  );
+
+  // --- Create a PR comment ------------------------------------------------------
+  server.registerTool(
+    "create_pull_request_comment",
+    {
+      description:
+        "Post a comment on a pull request. Three modes: general (only " +
+        "`content`), inline on a specific line (`file_path` + `line`, with " +
+        "`line_type` indicating whether the line is added or removed in the " +
+        "diff), or a reply to an existing comment (`parent_id`).",
+      inputSchema: {
+        ...repoShape,
+        pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+        content: z
+          .string()
+          .min(1)
+          .describe("Comment body (Markdown supported)."),
+        file_path: z
+          .string()
+          .optional()
+          .describe(
+            "For inline comments: file path exactly as it appears in the diff.",
+          ),
+        line: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "For inline comments: 1-based line number the comment anchors to.",
+          ),
+        line_type: z
+          .enum(["added", "removed"])
+          .optional()
+          .describe(
+            'Whether `line` refers to a line added ("+", numbered in the new ' +
+              'file) or removed ("-", numbered in the old file) in the diff. ' +
+              "Default: added.",
+          ),
+        parent_id: z
+          .number()
+          .int()
+          .optional()
+          .describe("Id of an existing comment to reply to."),
+      },
+    },
+    async ({
+      repo,
+      workspace,
+      pr_id,
+      content,
+      file_path,
+      line,
+      line_type,
+      parent_id,
+    }) =>
+      toolResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        if ((file_path === undefined) !== (line === undefined)) {
+          throw new Error(
+            "Inline comments require BOTH file_path and line (or neither).",
+          );
+        }
+
+        const body: {
+          content: { raw: string };
+          inline?: { path: string; to?: number; from?: number };
+          parent?: { id: number };
+        } = { content: { raw: content } };
+
+        if (file_path !== undefined && line !== undefined) {
+          body.inline =
+            line_type === "removed"
+              ? { path: file_path, from: line }
+              : { path: file_path, to: line };
+        }
+        if (parent_id !== undefined) {
+          body.parent = { id: parent_id };
+        }
+
+        const created = await bbRequest<BbComment>(
+          "POST",
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/comments`,
+          body,
+        );
+        return {
+          id: created.id,
+          url: created.links?.html?.href,
+          inline: created.inline
+            ? { path: created.inline.path, from: created.inline.from, to: created.inline.to }
+            : undefined,
+        };
       }),
   );
 
