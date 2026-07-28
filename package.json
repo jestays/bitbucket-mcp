@@ -1,0 +1,28 @@
+{
+  "name": "bitbucket-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for code review of Bitbucket Cloud pull requests",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "bitbucket-mcp": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx --env-file-if-exists=.env src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js"
+  },
+  "keywords": ["mcp", "bitbucket", "code-review", "pull-request"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
