@@ -1,4 +1,4 @@
-# bitbucket-mcp
+# @jestay/bitbucket-mcp
 
 MCP server for code review of Bitbucket Cloud pull requests: list PRs, read
 diffs, file contents and comments, and post review comments (general, inline
@@ -15,46 +15,42 @@ on specific lines, or replies).
 | `list_pull_request_comments` | Existing PR comments (general and inline) |
 | `create_pull_request_comment` | Post a comment: general, inline (`file_path` + `line`) or reply (`parent_id`) |
 
-## Setup
+## Requirements
 
-```bash
-pnpm install
-pnpm build
-cp .env.example .env   # then fill in the values
-```
+- Node.js 20.6+
+- An Atlassian API token (see below)
 
-Environment variables:
+## Creating the API token
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `BITBUCKET_EMAIL` | Yes | Atlassian account email |
-| `BITBUCKET_API_TOKEN` | Yes | API token from https://id.atlassian.com/manage-profile/security/api-tokens |
-| `BITBUCKET_WORKSPACE` | No | Default workspace so tools don't need it per call |
+Create an **API token with scopes** at
+https://id.atlassian.com/manage-profile/security/api-tokens, select
+**Bitbucket** as the app, and grant these scopes:
+
+| Scope | Used for |
+| --- | --- |
+| `read:user:bitbucket` | Authentication / identifying the token's user |
+| `read:workspace:bitbucket` | Resolving the workspace in API routes |
+| `read:repository:bitbucket` | Reading repository file contents (`get_file_content`) |
+| `read:pullrequest:bitbucket` | Listing and reading PRs, diffs and comments |
+| `write:pullrequest:bitbucket` | Posting review comments |
+
+No other scopes are needed — in particular, `write:repository:bitbucket` is
+NOT required (this server never pushes code).
 
 > Note: Atlassian App Passwords are deprecated — use API tokens.
 
-## Running
+## Usage (npx)
 
-```bash
-pnpm dev     # run from source (tsx)
-pnpm start   # run the compiled build
-```
+No installation needed — any machine with Node 20.6+ can run it via `npx`.
 
-`pnpm dev` and `pnpm start` load environment variables from a `.env` file in
-the project root (created in Setup above). When registering the server in an
-MCP client instead, environment variables come from the client's own config
-(see below) and no `.env` file is needed.
-
-## Register in an MCP client
-
-`.mcp.json` (Claude Code) or `claude_desktop_config.json`:
+`.mcp.json` (Claude Code) or `claude_desktop_config.json` (Claude Desktop):
 
 ```json
 {
   "mcpServers": {
     "bitbucket": {
-      "command": "node",
-      "args": ["/absolute/path/to/bitbucket-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@jestay/bitbucket-mcp"],
       "env": {
         "BITBUCKET_EMAIL": "you@company.com",
         "BITBUCKET_API_TOKEN": "your_token_here",
@@ -65,27 +61,39 @@ MCP client instead, environment variables come from the client's own config
 }
 ```
 
-Or with Claude Code CLI:
+Or with the Claude Code CLI:
 
 ```bash
 claude mcp add bitbucket \
   -e BITBUCKET_EMAIL=you@company.com \
   -e BITBUCKET_API_TOKEN=your_token_here \
   -e BITBUCKET_WORKSPACE=your-workspace \
-  -- node /absolute/path/to/bitbucket-mcp/dist/index.js
+  -- npx -y @jestay/bitbucket-mcp
 ```
 
-Once published to npm, machines only need Node 20.6+:
+### Environment variables
 
-```json
-{
-  "command": "npx",
-  "args": ["-y", "@jestay/bitbucket-mcp"]
-}
+| Variable | Required | Description |
+| --- | --- | --- |
+| `BITBUCKET_EMAIL` | Yes | Atlassian account email |
+| `BITBUCKET_API_TOKEN` | Yes | Atlassian API token (scopes above) |
+| `BITBUCKET_WORKSPACE` | No | Default workspace so tools don't need it per call |
+
+## Local development
+
+```bash
+pnpm install
+pnpm build
+cp .env.example .env   # then fill in the values
+pnpm dev               # run from source (tsx)
+pnpm start             # run the compiled build
 ```
 
-Note: the `@jestay` scope must match the npm account that publishes the
-package — update it if you publish under a different account.
+`pnpm dev` and `pnpm start` load environment variables from a `.env` file in
+the project root. When registering the server in an MCP client, environment
+variables come from the client's own config instead and no `.env` file is
+needed. To register a local build, use
+`node /absolute/path/to/bitbucket-mcp/dist/index.js` as the command.
 
 ## Project layout
 
