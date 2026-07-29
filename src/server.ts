@@ -9,6 +9,7 @@
  * Logging: console.error only — stdout is reserved for the MCP protocol.
  */
 
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -132,10 +133,16 @@ function summarizePr(pr: BbPullRequest) {
   };
 }
 
+// Single source of truth for the version: package.json (works from src/ via
+// tsx and from dist/ in the published package — both sit one level below root).
+const { version } = createRequire(import.meta.url)("../package.json") as {
+  version: string;
+};
+
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "bitbucket-mcp",
-    version: "0.1.0",
+    version,
   });
 
   // --- List pull requests ---------------------------------------------------
