@@ -245,7 +245,9 @@ export function createServer(): McpServer {
           .string()
           .describe(
             "Branch name, tag or commit hash (e.g. the PR source branch " +
-              "or source_commit from get_pull_request).",
+              "or source_commit from get_pull_request). Branch names " +
+              "containing slashes (e.g. \"bugfix/foo\") are supported and " +
+              "resolved to a commit hash automatically.",
           ),
       },
     },
@@ -257,8 +259,18 @@ export function createServer(): McpServer {
           .split("/")
           .map(encodeURIComponent)
           .join("/");
+        let resolvedRef = ref;
+        if (ref.includes("/")) {
+          // Branch names with "/" cannot appear percent-encoded in the /src
+          // URL; resolve them to a commit hash via the refs endpoint first.
+          const branch = await bbRequest<{ target?: { hash?: string } }>(
+            "GET",
+            `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/refs/branches/${encodeURIComponent(ref)}`,
+          ).catch(() => undefined);
+          if (branch?.target?.hash) resolvedRef = branch.target.hash;
+        }
         return bbRequestText(
-          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/src/${encodeURIComponent(ref)}/${encodedPath}`,
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/src/${encodeURIComponent(resolvedRef)}/${encodedPath}`,
         );
       }),
   );
