@@ -19,6 +19,7 @@ import {
   resolveWorkspace,
   toQuery,
 } from "./client.js";
+import { config } from "./config.js";
 
 /** Wrap a tool body with uniform JSON serialization and error handling. */
 async function toolResult(fn: () => Promise<unknown>) {
@@ -139,11 +140,42 @@ const { version } = createRequire(import.meta.url)("../package.json") as {
   version: string;
 };
 
+// Usage guidance sent to MCP clients. By default it gates
+// create_pull_request_comment behind explicit user approval;
+// BITBUCKET_YOLO=true drops the gate for automation/CI.
+const approvalWarning =
+  "Posts publicly visible content to Bitbucket — do NOT call this tool " +
+  "unless the user has explicitly approved the exact comment text. ";
+
+const instructions = [
+  "Tools for code review of Bitbucket Cloud pull requests.",
+  "",
+  "The read-only tools (list_pull_requests, get_pull_request, " +
+    "get_pull_request_diff, get_file_content, list_pull_request_comments) " +
+    "may be used freely.",
+  "",
+  "Recommended review workflow:",
+  "1. Read the PR metadata and diff, plus any file content needed for context.",
+  "2. Analyze the changes and consolidate ALL findings first.",
+  ...(config.yolo
+    ? ["3. Post the comments that follow from your findings."]
+    : [
+        "3. Present the complete set of findings to the user so they decide " +
+          "which ones become comments and with what wording.",
+        "4. Call create_pull_request_comment only for comments the user " +
+          "explicitly approved, one call per comment. Never post comments " +
+          "on your own initiative.",
+      ]),
+].join("\n");
+
 export function createServer(): McpServer {
-  const server = new McpServer({
-    name: "bitbucket-mcp",
-    version,
-  });
+  const server = new McpServer(
+    {
+      name: "bitbucket-mcp",
+      version,
+    },
+    { instructions },
+  );
 
   // --- List pull requests ---------------------------------------------------
   server.registerTool(
@@ -328,6 +360,7 @@ export function createServer(): McpServer {
     "create_pull_request_comment",
     {
       description:
+        (config.yolo ? "" : approvalWarning) +
         "Post a comment on a pull request. Three modes: general (only " +
         "`content`), inline on a specific line (`file_path` + `line`, with " +
         "`line_type` indicating whether the line is added or removed in the " +
