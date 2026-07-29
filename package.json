@@ -35,5 +35,13 @@
     "@types/node": "^25.9.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jestays/bitbucket-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jestays/bitbucket-mcp/issues"
+  },
+  "homepage": "https://github.com/jestays/bitbucket-mcp#readme"
 }
