@@ -33,7 +33,17 @@ async function bbFetch(
     init.body = JSON.stringify(body);
   }
 
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const cause =
+      err instanceof Error && err.cause instanceof Error
+        ? ` (${err.cause.message})`
+        : "";
+    throw new Error(`Network error calling Bitbucket API: ${msg}${cause}`);
+  }
   if (!res.ok) {
     throw new Error(await describeError(res));
   }

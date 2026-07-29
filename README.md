@@ -40,6 +40,11 @@ pnpm dev     # run from source (tsx)
 pnpm start   # run the compiled build
 ```
 
+`pnpm dev` and `pnpm start` load environment variables from a `.env` file in
+the project root (created in Setup above). When registering the server in an
+MCP client instead, environment variables come from the client's own config
+(see below) and no `.env` file is needed.
+
 ## Register in an MCP client
 
 `.mcp.json` (Claude Code) or `claude_desktop_config.json`:
@@ -63,17 +68,24 @@ pnpm start   # run the compiled build
 Or with Claude Code CLI:
 
 ```bash
-claude mcp add bitbucket node /absolute/path/to/bitbucket-mcp/dist/index.js
+claude mcp add bitbucket \
+  -e BITBUCKET_EMAIL=you@company.com \
+  -e BITBUCKET_API_TOKEN=your_token_here \
+  -e BITBUCKET_WORKSPACE=your-workspace \
+  -- node /absolute/path/to/bitbucket-mcp/dist/index.js
 ```
 
-Once published to npm, machines only need Node 20+:
+Once published to npm, machines only need Node 20.6+:
 
 ```json
 {
   "command": "npx",
-  "args": ["-y", "bitbucket-mcp"]
+  "args": ["-y", "@jestay/bitbucket-mcp"]
 }
 ```
+
+Note: the `@jestay` scope must match the npm account that publishes the
+package — update it if you publish under a different account.
 
 ## Project layout
 

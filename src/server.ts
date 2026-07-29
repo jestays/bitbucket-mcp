@@ -135,7 +135,7 @@ function summarizePr(pr: BbPullRequest) {
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "bitbucket-mcp",
-    version: "1.0.0",
+    version: "0.1.0",
   });
 
   // --- List pull requests ---------------------------------------------------
@@ -252,7 +252,11 @@ export function createServer(): McpServer {
     async ({ repo, workspace, path, ref }) =>
       textResult(async () => {
         const ws = resolveWorkspace(workspace);
-        const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+        const encodedPath = path
+          .replace(/^\/+/, "")
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/");
         return bbRequestText(
           `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/src/${encodeURIComponent(ref)}/${encodedPath}`,
         );
