@@ -5,9 +5,11 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "bitbucket-mcp": "./dist/index.js"
+    "bitbucket-mcp": "dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20.6"
   },
@@ -17,7 +19,12 @@
     "start": "node --env-file=.env dist/index.js",
     "prepublishOnly": "pnpm build"
   },
-  "keywords": ["mcp", "bitbucket", "code-review", "pull-request"],
+  "keywords": [
+    "mcp",
+    "bitbucket",
+    "code-review",
+    "pull-request"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
