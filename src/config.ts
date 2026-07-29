@@ -26,4 +26,11 @@ export const config = {
   /** Optional default workspace; tools fall back to this when the
    *  `workspace` parameter is omitted. */
   defaultWorkspace: process.env.BITBUCKET_WORKSPACE || undefined,
+
+  /** When true, drops the user-approval gate from the server instructions
+   *  and the create_pull_request_comment description, allowing autonomous
+   *  commenting (automation/CI). Safe default: gate active. */
+  yolo:
+    process.env.BITBUCKET_YOLO === "true" ||
+    process.env.BITBUCKET_YOLO === "1",
 } as const;
