@@ -15,6 +15,17 @@ on specific lines, or replies).
 | `list_pull_request_comments` | Existing PR comments (general and inline) |
 | `create_pull_request_comment` | Post a comment: general, inline (`file_path` + `line`) or reply (`parent_id`) |
 
+## Review workflow
+
+By default the server ships MCP instructions telling the connected agent to
+review first and comment later: read the diff, consolidate all findings,
+present them to the user, and post only the comments the user explicitly
+approved. `create_pull_request_comment` carries the same warning in its
+description.
+
+For unattended use (automation/CI), set `BITBUCKET_YOLO=true` to remove the
+approval gate and let the agent comment autonomously.
+
 ## Requirements
 
 - Node.js 20.6+
@@ -78,6 +89,7 @@ claude mcp add bitbucket \
 | `BITBUCKET_EMAIL` | Yes | Atlassian account email |
 | `BITBUCKET_API_TOKEN` | Yes | Atlassian API token (scopes above) |
 | `BITBUCKET_WORKSPACE` | No | Default workspace so tools don't need it per call |
+| `BITBUCKET_YOLO` | No | Set to `true`/`1` to disable the ask-before-commenting guidance (automation/CI) |
 
 ## Local development
 
