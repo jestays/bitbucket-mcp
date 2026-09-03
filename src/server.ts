@@ -2,8 +2,9 @@
  * MCP server definition.
  *
  * Exposes tools for code review of Bitbucket Cloud pull requests: list PRs,
- * read metadata / diffs / file contents / comments, and post review comments
- * (general, inline, or replies).
+ * read metadata / diffs / file contents / comments, post review comments
+ * (general, inline, or replies), resolve comment threads and update the PR
+ * title/description.
  *
  * Transport: stdio (all MCP protocol traffic over stdin/stdout).
  * Logging: console.error only — stdout is reserved for the MCP protocol.
@@ -82,6 +83,7 @@ const pageShape = {
 /** Minimal shapes of the Bitbucket API responses we consume. */
 interface BbUser {
   display_name?: string;
+  uuid?: string;
 }
 interface BbBranchEnd {
   branch?: { name?: string };
@@ -96,6 +98,8 @@ interface BbPullRequest {
   source?: BbBranchEnd;
   destination?: BbBranchEnd;
   reviewers?: BbUser[];
+  close_source_branch?: boolean;
+  draft?: boolean;
   participants?: { user?: BbUser; role?: string; approved?: boolean }[];
   comment_count?: number;
   created_on?: string;
@@ -115,9 +119,14 @@ interface BbComment {
   inline?: { path?: string; from?: number | null; to?: number | null };
   parent?: { id?: number };
   deleted?: boolean;
-  resolution?: unknown;
+  resolution?: BbResolution | null;
   created_on?: string;
   links?: { html?: { href?: string } };
+}
+interface BbResolution {
+  type?: string;
+  user?: BbUser;
+  created_on?: string;
 }
 
 function summarizePr(pr: BbPullRequest) {
@@ -147,6 +156,10 @@ const approvalWarning =
   "Posts publicly visible content to Bitbucket — do NOT call this tool " +
   "unless the user has explicitly approved the exact comment text. ";
 
+const mutationWarning =
+  "Modifies the pull request in Bitbucket — do NOT call this tool " +
+  "unless the user has explicitly asked for this exact change. ";
+
 const instructions = [
   "Tools for code review of Bitbucket Cloud pull requests.",
   "",
@@ -165,6 +178,10 @@ const instructions = [
         "4. Call create_pull_request_comment only for comments the user " +
           "explicitly approved, one call per comment. Never post comments " +
           "on your own initiative.",
+        "",
+        "The other mutating tools (resolve_pull_request_comment, " +
+          "update_pull_request) change the PR state or text. Call them only " +
+          "when the user explicitly asks for that specific change.",
       ]),
 ].join("\n");
 
@@ -347,6 +364,7 @@ export function createServer(): McpServer {
             reply_to: c.parent?.id,
             deleted: c.deleted || undefined,
             resolved: c.resolution ? true : undefined,
+            resolved_by: c.resolution?.user?.display_name,
             created_on: c.created_on,
           })),
           page: data.page,
@@ -446,6 +464,99 @@ export function createServer(): McpServer {
           inline: created.inline
             ? { path: created.inline.path, from: created.inline.from, to: created.inline.to }
             : undefined,
+        };
+      }),
+  );
+
+  // --- Resolve / reopen a PR comment thread -----------------------------------
+  server.registerTool(
+    "resolve_pull_request_comment",
+    {
+      description:
+        (config.yolo ? "" : mutationWarning) +
+        "Resolve or reopen a comment thread on a pull request. Only " +
+        "top-level inline comments (anchored to the diff) can be resolved; " +
+        "replies and general comments are rejected by Bitbucket. " +
+        "Resolving an already-resolved thread or reopening an unresolved " +
+        "one fails.",
+      inputSchema: {
+        ...repoShape,
+        pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+        comment_id: z
+          .number()
+          .int()
+          .describe("Id of the top-level comment that opens the thread."),
+        action: z
+          .enum(["resolve", "reopen"])
+          .optional()
+          .describe('"resolve" (default) marks the thread as resolved; "reopen" undoes it.'),
+      },
+    },
+    async ({ repo, workspace, pr_id, comment_id, action }) =>
+      toolResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        const path = `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/comments/${comment_id}/resolve`;
+        if (action === "reopen") {
+          await bbRequest<void>("DELETE", path);
+          return { comment_id, resolved: false };
+        }
+        const resolution = await bbRequest<BbResolution>("POST", path);
+        return {
+          comment_id,
+          resolved: true,
+          resolved_by: resolution?.user?.display_name,
+          resolved_on: resolution?.created_on,
+        };
+      }),
+  );
+
+  // --- Update PR title / description ------------------------------------------
+  server.registerTool(
+    "update_pull_request",
+    {
+      description:
+        (config.yolo ? "" : mutationWarning) +
+        "Update the title and/or description of an OPEN pull request. Fields " +
+        "not provided keep their current value; reviewers, branches and " +
+        "flags are read first and sent back unchanged (Bitbucket's PUT " +
+        "drops anything omitted). Pass an empty string to clear the " +
+        "description.",
+      inputSchema: {
+        ...repoShape,
+        pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+        title: z.string().min(1).optional().describe("New PR title."),
+        description: z
+          .string()
+          .optional()
+          .describe("New PR description (Markdown supported)."),
+      },
+    },
+    async ({ repo, workspace, pr_id, title, description }) =>
+      toolResult(async () => {
+        if (title === undefined && description === undefined) {
+          throw new Error("Provide at least one of `title` or `description`.");
+        }
+        const ws = resolveWorkspace(workspace);
+        const path = `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}`;
+        const current = await bbRequest<BbPullRequest>("GET", path);
+        if (current.state && current.state !== "OPEN") {
+          throw new Error(
+            `Pull request ${pr_id} is ${current.state}; only OPEN pull requests can be updated.`,
+          );
+        }
+        const reviewers = (current.reviewers ?? [])
+          .filter((r) => r.uuid)
+          .map((r) => ({ uuid: r.uuid }));
+        const updated = await bbRequest<BbPullRequest>("PUT", path, {
+          title: title ?? current.title,
+          description: description ?? current.description ?? "",
+          reviewers,
+          close_source_branch: current.close_source_branch ?? false,
+          ...(current.draft !== undefined ? { draft: current.draft } : {}),
+        });
+        return {
+          ...summarizePr(updated),
+          description: updated.description,
         };
       }),
   );

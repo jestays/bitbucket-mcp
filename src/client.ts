@@ -9,7 +9,7 @@ import { config } from "./config.js";
 
 const BASE_URL = "https://api.bitbucket.org/2.0";
 
-type HttpMethod = "GET" | "POST";
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 const authHeader =
   "Basic " +
