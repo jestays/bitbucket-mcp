@@ -474,9 +474,9 @@ export function createServer(): McpServer {
     {
       description:
         (config.yolo ? "" : mutationWarning) +
-        "Resolve or reopen a comment thread on a pull request. Only " +
-        "top-level inline comments (anchored to the diff) can be resolved; " +
-        "replies and general comments are rejected by Bitbucket. " +
+        "Resolve or reopen a comment thread on a pull request. Works on " +
+        "any top-level comment, general or inline; replies cannot be " +
+        "resolved (pass the id of the comment that opens the thread). " +
         "Resolving an already-resolved thread or reopening an unresolved " +
         "one fails.",
       inputSchema: {

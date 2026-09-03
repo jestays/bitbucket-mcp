@@ -15,12 +15,13 @@ title/description.
 | `get_file_content` | Raw file content at a branch/tag/commit |
 | `list_pull_request_comments` | Existing PR comments (general and inline), with resolution status |
 | `create_pull_request_comment` | Post a comment: general, inline (`file_path` + `line`) or reply (`parent_id`) |
-| `resolve_pull_request_comment` | Resolve (or reopen with `action: "reopen"`) a top-level inline comment thread |
+| `resolve_pull_request_comment` | Resolve (or reopen with `action: "reopen"`) a top-level comment thread |
 | `update_pull_request` | Update the `title` and/or `description` of an open PR |
 
-Bitbucket Cloud only allows resolving top-level comments anchored to the diff;
-replies and general comments cannot be resolved. Liking a comment is not
-exposed by the public REST API 2.0, so it is not available here.
+Bitbucket Cloud allows resolving any top-level comment, general or inline;
+replies cannot be resolved, so pass the id of the comment that opens the
+thread. Liking a comment is not exposed by the public REST API 2.0, so it is
+not available here.
 
 Bitbucket's `PUT /pullrequests/{id}` is a full replace: any field omitted from
 the body is dropped (reviewers included). `update_pull_request` therefore reads
