@@ -134,6 +134,7 @@ function summarizePr(pr: BbPullRequest) {
     id: pr.id,
     title: pr.title,
     state: pr.state,
+    draft: pr.draft ?? false,
     author: pr.author?.display_name,
     source_branch: pr.source?.branch?.name,
     destination_branch: pr.destination?.branch?.name,
@@ -234,8 +235,8 @@ export function createServer(): McpServer {
     {
       description:
         "Get full metadata of a pull request: title, description, author, " +
-        "branches with commit hashes, state, and reviewers with their " +
-        "approval status.",
+        "branches with commit hashes, state, draft flag, and reviewers with " +
+        "their approval status.",
       inputSchema: {
         ...repoShape,
         pr_id: z.number().int().describe("Pull request id, e.g. 42."),
@@ -269,17 +270,30 @@ export function createServer(): McpServer {
     {
       description:
         "Get the unified diff of a pull request as plain text. This is the " +
-        "primary input for a code review.",
+        "primary input for a code review. For large pull requests, pass " +
+        "`paths` to fetch the diff of specific files only.",
       inputSchema: {
         ...repoShape,
         pr_id: z.number().int().describe("Pull request id, e.g. 42."),
+        paths: z
+          .array(z.string().min(1))
+          .min(1)
+          .optional()
+          .describe(
+            "Exact repository-relative file paths to restrict the diff to, " +
+              'e.g. ["src/app/main.ts", "src/app/util.ts"]. Directory ' +
+              "prefixes are not supported by Bitbucket. Omit for the full diff.",
+          ),
       },
     },
-    async ({ repo, workspace, pr_id }) =>
+    async ({ repo, workspace, pr_id, paths }) =>
       textResult(async () => {
         const ws = resolveWorkspace(workspace);
+        const search = new URLSearchParams();
+        for (const path of paths ?? []) search.append("path", path);
+        const query = search.size > 0 ? `?${search.toString()}` : "";
         return bbRequestText(
-          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/diff`,
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests/${pr_id}/diff${query}`,
         );
       }),
   );

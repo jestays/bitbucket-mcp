@@ -10,8 +10,8 @@ title/description.
 | Tool | Description |
 | --- | --- |
 | `list_pull_requests` | List PRs of a repo, filtered by state (default OPEN) |
-| `get_pull_request` | Full PR metadata: branches, commits, reviewers, approval status |
-| `get_pull_request_diff` | Unified diff of the PR (plain text) |
+| `get_pull_request` | Full PR metadata: branches, commits, draft flag, reviewers, approval status |
+| `get_pull_request_diff` | Unified diff of the PR (plain text); `paths` restricts it to specific files |
 | `get_file_content` | Raw file content at a branch/tag/commit |
 | `list_pull_request_comments` | Existing PR comments (general and inline), with resolution status |
 | `create_pull_request_comment` | Post a comment: general, inline (`file_path` + `line`) or reply (`parent_id`) |
