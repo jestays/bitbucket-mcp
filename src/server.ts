@@ -144,6 +144,34 @@ function summarizePr(pr: BbPullRequest) {
   };
 }
 
+async function defaultReviewers(ws: string, repo: string) {
+  const [me, entries] = await Promise.all([
+    bbRequest<BbUser>("GET", "/user"),
+    collectPages<{ user?: BbUser }>(
+      `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/effective-default-reviewers`,
+    ),
+  ]);
+  const uuids = new Set(
+    entries
+      .map((r) => r.user?.uuid)
+      .filter((uuid): uuid is string => !!uuid && uuid !== me.uuid),
+  );
+  return [...uuids].map((uuid) => ({ uuid }));
+}
+
+async function collectPages<T>(path: string): Promise<T[]> {
+  const values: T[] = [];
+  let next: string | undefined = path;
+  while (next) {
+    const data: BbPaginated<T> = await bbRequest<BbPaginated<T>>("GET", next);
+    values.push(...(data.values ?? []));
+    if (!data.next) break;
+    const url = new URL(data.next);
+    next = url.pathname.replace(/^\/2\.0/, "") + url.search;
+  }
+  return values;
+}
+
 // Single source of truth for the version: package.json (works from src/ via
 // tsx and from dist/ in the published package — both sit one level below root).
 const { version } = createRequire(import.meta.url)("../package.json") as {
@@ -589,7 +617,11 @@ export function createServer(): McpServer {
         "Open a new pull request from `source_branch` into " +
         "`destination_branch` (default: the repository's main branch). The " +
         "author is the token's user. Both branches must already exist in " +
-        "the repository. Returns the created PR summary and its URL.",
+        "the repository. The repository's effective default reviewers " +
+        "(repository and project level, excluding the author) are added " +
+        "automatically, as the Bitbucket UI does; the REST API does not " +
+        "add them on its own. Returns the created PR summary, its " +
+        "reviewers and its URL.",
       inputSchema: {
         ...repoShape,
         title: z.string().min(1).describe("Pull request title."),
@@ -630,12 +662,14 @@ export function createServer(): McpServer {
     }) =>
       toolResult(async () => {
         const ws = resolveWorkspace(workspace);
+        const reviewers = await defaultReviewers(ws, repo);
         const created = await bbRequest<BbPullRequest>(
           "POST",
           `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests`,
           {
             title,
             source: { branch: { name: source_branch } },
+            reviewers,
             ...(destination_branch !== undefined
               ? { destination: { branch: { name: destination_branch } } }
               : {}),
@@ -647,6 +681,7 @@ export function createServer(): McpServer {
         return {
           ...summarizePr(created),
           description: created.description,
+          reviewers: (created.reviewers ?? []).map((r) => r.display_name),
         };
       }),
   );
