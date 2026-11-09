@@ -161,6 +161,10 @@ const mutationWarning =
   "Modifies the pull request in Bitbucket — do NOT call this tool " +
   "unless the user has explicitly asked for this exact change. ";
 
+const creationWarning =
+  "Opens a new pull request in Bitbucket — do NOT call this tool " +
+  "unless the user has explicitly asked to open this pull request. ";
+
 const instructions = [
   "Tools for code review of Bitbucket Cloud pull requests.",
   "",
@@ -180,9 +184,10 @@ const instructions = [
           "explicitly approved, one call per comment. Never post comments " +
           "on your own initiative.",
         "",
-        "The other mutating tools (resolve_pull_request_comment, " +
-          "update_pull_request) change the PR state or text. Call them only " +
-          "when the user explicitly asks for that specific change.",
+        "The other mutating tools (create_pull_request, " +
+          "resolve_pull_request_comment, update_pull_request) open a PR or " +
+          "change its state or text. Call them only when the user explicitly " +
+          "asks for that specific change.",
       ]),
 ].join("\n");
 
@@ -571,6 +576,77 @@ export function createServer(): McpServer {
         return {
           ...summarizePr(updated),
           description: updated.description,
+        };
+      }),
+  );
+
+  // --- Create a pull request --------------------------------------------------
+  server.registerTool(
+    "create_pull_request",
+    {
+      description:
+        (config.yolo ? "" : creationWarning) +
+        "Open a new pull request from `source_branch` into " +
+        "`destination_branch` (default: the repository's main branch). The " +
+        "author is the token's user. Both branches must already exist in " +
+        "the repository. Returns the created PR summary and its URL.",
+      inputSchema: {
+        ...repoShape,
+        title: z.string().min(1).describe("Pull request title."),
+        source_branch: z
+          .string()
+          .min(1)
+          .describe('Branch with the changes, e.g. "feature/login".'),
+        destination_branch: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Branch to merge into. Default: the repository's main branch.",
+          ),
+        description: z
+          .string()
+          .optional()
+          .describe("Pull request description (Markdown supported)."),
+        close_source_branch: z
+          .boolean()
+          .optional()
+          .describe("Delete the source branch after merging. Default: false."),
+        draft: z
+          .boolean()
+          .optional()
+          .describe("Open the pull request as a draft. Default: false."),
+      },
+    },
+    async ({
+      repo,
+      workspace,
+      title,
+      source_branch,
+      destination_branch,
+      description,
+      close_source_branch,
+      draft,
+    }) =>
+      toolResult(async () => {
+        const ws = resolveWorkspace(workspace);
+        const created = await bbRequest<BbPullRequest>(
+          "POST",
+          `/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(repo)}/pullrequests`,
+          {
+            title,
+            source: { branch: { name: source_branch } },
+            ...(destination_branch !== undefined
+              ? { destination: { branch: { name: destination_branch } } }
+              : {}),
+            ...(description !== undefined ? { description } : {}),
+            ...(close_source_branch !== undefined ? { close_source_branch } : {}),
+            ...(draft !== undefined ? { draft } : {}),
+          },
+        );
+        return {
+          ...summarizePr(created),
+          description: created.description,
         };
       }),
   );
