@@ -2,8 +2,8 @@
 
 MCP server for code review of Bitbucket Cloud pull requests: list PRs, read
 diffs, file contents and comments, post review comments (general, inline on
-specific lines, or replies), resolve comment threads and update the PR
-title/description.
+specific lines, or replies), resolve comment threads, update the PR
+title/description and open new PRs.
 
 ## Tools
 
@@ -17,6 +17,7 @@ title/description.
 | `create_pull_request_comment` | Post a comment: general, inline (`file_path` + `line`) or reply (`parent_id`) |
 | `resolve_pull_request_comment` | Resolve (or reopen with `action: "reopen"`) a top-level comment thread |
 | `update_pull_request` | Update the `title` and/or `description` of an open PR |
+| `create_pull_request` | Open a PR from `source_branch` into `destination_branch` (default: main branch), optionally as `draft` |
 
 Bitbucket Cloud allows resolving any top-level comment, general or inline;
 replies cannot be resolved, so pass the id of the comment that opens the
@@ -34,8 +35,9 @@ By default the server ships MCP instructions telling the connected agent to
 review first and comment later: read the diff, consolidate all findings,
 present them to the user, and post only the comments the user explicitly
 approved. `create_pull_request_comment` carries the same warning in its
-description, and the other mutating tools (`resolve_pull_request_comment`,
-`update_pull_request`) ask the agent to act only on an explicit user request.
+description, and the other mutating tools (`create_pull_request`,
+`resolve_pull_request_comment`, `update_pull_request`) ask the agent to act
+only on an explicit user request.
 
 For unattended use (automation/CI), set `BITBUCKET_YOLO=true` to remove the
 approval gate and let the agent comment autonomously.
@@ -57,7 +59,7 @@ https://id.atlassian.com/manage-profile/security/api-tokens, select
 | `read:workspace:bitbucket` | Resolving the workspace in API routes |
 | `read:repository:bitbucket` | Reading repository file contents (`get_file_content`) |
 | `read:pullrequest:bitbucket` | Listing and reading PRs, diffs and comments |
-| `write:pullrequest:bitbucket` | Posting review comments, resolving threads, updating the PR |
+| `write:pullrequest:bitbucket` | Posting review comments, resolving threads, updating and creating PRs |
 
 No other scopes are needed — in particular, `write:repository:bitbucket` is
 NOT required (this server never pushes code).
