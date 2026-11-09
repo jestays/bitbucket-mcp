@@ -17,7 +17,7 @@ title/description and open new PRs.
 | `create_pull_request_comment` | Post a comment: general, inline (`file_path` + `line`) or reply (`parent_id`) |
 | `resolve_pull_request_comment` | Resolve (or reopen with `action: "reopen"`) a top-level comment thread |
 | `update_pull_request` | Update the `title` and/or `description` of an open PR |
-| `create_pull_request` | Open a PR from `source_branch` into `destination_branch` (default: main branch), optionally as `draft` |
+| `create_pull_request` | Open a PR from `source_branch` into `destination_branch` (default: main branch), optionally as `draft`, with the repo's default reviewers |
 
 Bitbucket Cloud allows resolving any top-level comment, general or inline;
 replies cannot be resolved, so pass the id of the comment that opens the
@@ -28,6 +28,11 @@ Bitbucket's `PUT /pullrequests/{id}` is a full replace: any field omitted from
 the body is dropped (reviewers included). `update_pull_request` therefore reads
 the PR first and sends reviewers, `close_source_branch` and `draft` back
 unchanged, so only the title/description you pass actually change.
+
+Pull requests created through the REST API do not get the repository's default
+reviewers (only the Bitbucket UI adds them). `create_pull_request` therefore
+reads the effective default reviewers (repository and project level) and sends
+them with the new PR, excluding the token's user, who is the author.
 
 ## Review workflow
 
